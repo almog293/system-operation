@@ -10,7 +10,7 @@ int main(int argc, char **argv)
 {
     int fd;
     int read_message_len;
-    unsigned int ch_id;
+    unsigned long ch_id;
     char message_buffer[BUFFER_LEN];
 
     if(argc != 3)
@@ -18,7 +18,8 @@ int main(int argc, char **argv)
         perror("Error - Invalid number of arguments\n");
         exit(1);
     }
-    if((fd = open(argv[1], O_RDWR)) == -1)
+    fd = open(argv[1], O_RDWR);
+    if( fd < 0)
     {
         perror("Error - opening file descriptor\n");
         exit(1);
@@ -42,6 +43,8 @@ int main(int argc, char **argv)
         close(fd);
         exit(1);
     }
+
+
     close(fd);
     exit(0);
 }
