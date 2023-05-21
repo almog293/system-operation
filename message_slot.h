@@ -17,13 +17,6 @@
 #define BUFFER_LEN 128
 #define SUCCESS 0
 
-typedef struct channel {
-    unsigned int ch_id;
-    int msg_size;
-    char message[BUFFER_LEN];
-    struct channel *next;
-} channel;
-
 
 
 #endif 
