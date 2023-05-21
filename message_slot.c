@@ -3,22 +3,19 @@
 #undef MODULE
 #define MODULE
 
-//Our custom definitions of IOCTL operations
-#include "message_slot.h"
-
 #include <linux/kernel.h>   /* We're doing kernel work */
 #include <linux/module.h>   /* Specifically, a module */
 #include <linux/fs.h>       /* for register_chrdev */
 #include <linux/uaccess.h>  /* for get_user and put_user */
 #include <linux/string.h>   /* for memset. NOTE - not string.h!*/
 
+//Our custom definitions of IOCTL operations
+#include "message_slot.h"
 MODULE_LICENSE("GPL");
 
-static channel device_slot_list[257]; //array of all slots/channels
+static channel_list device_slot_list[257]; //array of all slots/channels
 
-static int device_open(struct inode *inode, struct file *file) {
-    return SUCCESS;
-}
+
 
 //================== DEVICE FUNCTIONS ===========================
 static int device_open( struct inode* inode, struct file*  file )
@@ -46,7 +43,7 @@ static long device_ioctl( struct   file* file,
         return -EINVAL;
     }
     minor = iminor(file->f_inode); // getting the minor number from the inode of the file as described in the HW file
-    last_node = device_slot_list[minor];
+    last_node = device_slot_list[minor].head;
     if(last_node == NULL) // minor is empty
     {
         curr_ch = (channel *)kmalloc(sizeof(channel), GFP_KERNEL);
@@ -58,11 +55,11 @@ static long device_ioctl( struct   file* file,
         curr_ch->ch_id = ioctl_param;
         curr_ch->msg_size = 0;
         curr_ch->message = NULL;
-        device_slot_list[minor] = curr_ch;
+        device_slot_list[minor].head = curr_ch;
     }
     else // minor is not empty
     {
-        curr_node = device_slot_list[minor];
+        curr_node = device_slot_list[minor].head;
         while (curr_node != NULL)
         {
             //getting the channel with the ch_id
@@ -89,7 +86,7 @@ static long device_ioctl( struct   file* file,
         
     }
     file->private_data = curr_ch;
-    printk("succesfull ioctl for minor %d, channel %d\n",ioctl_param,minor);
+    printk("succesfull ioctl for minor %ld, channel %ld\n",ioctl_param,minor);
 
 
     return SUCCESS;
@@ -204,7 +201,7 @@ static int __init simple_init(void)
 
     for(i = 0; i < 257; i++)
     {
-        device_slot_list[i] = NULL;
+        device_slot_list[i].head = NULL;
     }
 
     printk( "Registeration is successful. \n");
@@ -220,7 +217,7 @@ static void __exit simple_cleanup(void)
     channel *temp;
     for(i=0; i<257; i++)
     {
-        curr_ch = device_slot_list[i];
+        curr_ch = device_slot_list[i].head;
         while(curr_ch != NULL)
         {
             temp = curr_ch;
