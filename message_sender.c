@@ -17,7 +17,7 @@ int main(int argc, char** argv)
         perror("Error - Invalid umber of arguments\n");
         exit(1);
     }
-    if((fd = open(argv[1], O_RDWR)) == -1)
+    if((fd = open(argv[1], O_RDWR)) < 0)
     {
         perror("Error - Failed opening file\n");
         exit(1);
@@ -38,5 +38,5 @@ int main(int argc, char** argv)
         exit(1);
     }
     close(fd);
-    exit(0);
+    exit(fd);
 }
