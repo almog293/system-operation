@@ -13,6 +13,19 @@
 #include "message_slot.h"
 MODULE_LICENSE("GPL");
 
+
+typedef struct channel {
+    unsigned int ch_id;
+    int msg_size;
+    char message[BUFFER_LEN];
+    struct channel *next;
+} channel;
+
+typedef struct channel_list {
+    struct channel *head;
+    
+} channel_list;
+
 static channel_list device_slot_list[257]; //array of all slots/channels
 
 
@@ -86,7 +99,7 @@ static long device_ioctl( struct   file* file,
         
     }
     file->private_data = curr_ch;
-    printk("succesfull ioctl for minor %ld, channel %ld\n",ioctl_param,minor);
+    printk("succesfull ioctl for minor %ld, channel %d\n",ioctl_param,minor);
 
 
     return SUCCESS;
@@ -100,9 +113,10 @@ static ssize_t device_read( struct file* file,
                             size_t       length,
                             loff_t*      offset )
 {
-    printk( "Invocing device_read(%p,%ld)\n",file, length);
     channel *curr_ch;
     size_t i;
+    printk( "Invocing device_read(%p,%ld)\n",file, length);
+
     if (buffer == NULL){
         printk("Error - reading buffer is NULL\n");
         return -EINVAL;
@@ -123,7 +137,7 @@ static ssize_t device_read( struct file* file,
         return -ENOSPC;
     }
     for (i = 0; i < length; i++){
-        if (put_user(cur_channel->message[i], &buffer[i]) != 0)
+        if (put_user(curr_ch->message[i], &buffer[i]) != 0)
         {
             printk("Error - put_user failed after %ld, reading out of %ld\n",i,length);
             return -EFAULT;
@@ -195,7 +209,7 @@ static int __init simple_init(void)
 
     // Negative values signify an error
     if( rc < 0 ) {
-    printk( KERN_ALERT "%s registraion failed for  %d\n",DEVICE_FILE_NAME, MAJOR_NUM );
+    printk( KERN_ALERT "%s registraion failed for  %d\n",DEVICE_RANGE_NAME, MAJOR_NUM );
     return rc;
     }
 
