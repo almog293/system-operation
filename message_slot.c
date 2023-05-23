@@ -15,7 +15,7 @@ MODULE_LICENSE("GPL");
 
 
 typedef struct channel {
-    unsigned int ch_id;
+    unsigned long ch_id;
     int msg_size;
     char message[BUFFER_LEN];
     struct channel *next;
@@ -23,18 +23,58 @@ typedef struct channel {
 
 typedef struct channel_list {
     struct channel *head;
+    int size;
     
 } channel_list;
 
 static channel_list device_slot_list[257]; //array of all slots/channels
 
+channel *getChannel(int minor, int ch_id)
+{
+    channel *curr_node;
+    curr_node = device_slot_list[minor].head;
+    while(curr_node != NULL)
+    {
+        if(curr_node->ch_id == ch_id)
+        {
+            curr_node;
+        }
+        curr_node = curr_node->next;
+    }
+    return NULL;
+}
+
+channel *createNode(unsigned long ch_id)
+{
+    channel *curr_ch = kmalloc(sizeof(channel),GFP_KERNEL);
+    if(curr_ch == NULL)
+    {
+        printk("Error - failed kmalloc new channl\n");
+        return NULL;
+    }
+    curr_ch->ch_id = ch_id;
+    curr_ch->msg_size = 0;
+    curr_ch->next = NULL;
+    return curr_ch;
+}
 
 
 //================== DEVICE FUNCTIONS ===========================
 static int device_open( struct inode* inode, struct file*  file )
 {
+    channel_list device;
+    int minor = iminor(inode);
     printk("Invoking device_open(%p)\n", file);
-
+    if(channel_list[minor] == NULL)
+    {
+        if((device = kmalloc(sizeof(channel_list) , GFP_KERNEL))== NULL)
+        {
+            prinkt("Error - failed kmalloc new minor\n");
+            return -1;
+        }
+        device->size = 0;
+        device_slot_list[minor] = device;
+    }
     return SUCCESS;
 }
 
@@ -45,7 +85,7 @@ static long device_ioctl( struct   file* file,
 {
     int minor;
     int i;
-    channel *curr_ch,*curr_node,*last_node;
+    channel *curr_ch,*curr_node,*perv_node;
     if(ioctl_command_id != MSG_SLOT_CHANNEL)
     {
         printk("Error - Invalid ioclt command id\n");
@@ -57,57 +97,41 @@ static long device_ioctl( struct   file* file,
         return -EINVAL;
     }
     minor = iminor(file->f_inode); // getting the minor number from the inode of the file as described in the HW file
-    last_node = device_slot_list[minor].head;
-    if(last_node == NULL) // minor is empty
+    if(device_slot_list[minor].size == 0) // minor is empty
     {
-    	printk("advisory - minor is empty\n");
-        curr_ch = (channel *)kmalloc(sizeof(channel), GFP_KERNEL);
-        if(curr_ch == NULL)
-        {
-            printk("Error - failed malloc new channel\n");
+    	printk("creating minor\n");
+        if((curr_ch = createNode(ioctl_param)) == NULL)
             return -ENOMEM;
-        }
-        curr_ch->ch_id = ioctl_param;
-        curr_ch->msg_size = 0;
-        curr_ch->next = NULL;
         device_slot_list[minor].head = curr_ch;
+        device_slot_list[minor].size = 1;
     }
     else // minor is not empty
     {
-    	printk("advisory - minor is not empty\n");
+    	printk("minor is not empty\n");
         curr_node = device_slot_list[minor].head;
-        for(i = 0; i < 10; i++)
-            //getting the channel with the ch_id
-            //getting the last node of the linked list in the minor
-            if(curr_node->ch_id == ioctl_param)
+        do
+        {
+            if(curr_node == ioctl_param)
+            {
                 curr_ch = curr_node;
-            last_node = curr_node;
+            }
+            perv_node = curr_node;
             curr_node = curr_node->next;
-            if(curr_node == NULL)
-            	break;
-        }
+        } while (curr_node != NULL);
         if(curr_ch == NULL)
         {
-            //channel id does not exists for the minor
-            curr_ch = (channel *)kmalloc(sizeof(channel), GFP_KERNEL);
-            if(curr_ch == NULL)
-            {
-                printk("Error - failed malloc new channel\n");
+            if((curr_ch = createNode(ioctl_param) == NULL))
                 return -ENOMEM;
-            }
-            curr_ch->ch_id = ioctl_param;
-            curr_ch->msg_size = 0;
-            curr_ch->next = NULL;
-            last_node->next = curr_ch;
+            perv_node->next = curr_ch;
+            device_slot_list[minor]++;
         }
-        
     }
     file->private_data = curr_ch;
     printk("succesfull ioctl for minor %d, channel %ld\n",minor,ioctl_param);
 
-
     return SUCCESS;
 }
+
 
 //---------------------------------------------------------------
 // a process which has already opened
@@ -118,18 +142,21 @@ static ssize_t device_read( struct file* file,
                             loff_t*      offset )
 {
     channel *curr_ch;
-    int count;
     int minor;
     char *temp_message_buff;
     printk( "Invocing device_read(%p,%ld)\n",file, length);
     minor = iminor(file->f_inode);
     printk("reading from minor %d\n",minor);
+    if(device_slot_list[minor] == NULL)
+    {
+        printk("Error - didnt open file\n");
+        return -EINVAL;
+    }
     if (buffer == NULL){
         printk("Error - reading buffer is NULL\n");
         return -EINVAL;
     }
-    curr_ch = (channel*)file->private_data;
-    if(curr_ch == NULL)
+    if((curr_ch = (channel*)file->private_data) == NULL)
     {
         printk("Error - no channel to read from the minor\n");
         return -EINVAL;
@@ -137,7 +164,6 @@ static ssize_t device_read( struct file* file,
     if(curr_ch->msg_size == 0)
     {
         printk("Error - no message to read\n");
-        printk("message size: %d, slot id: %d\n",curr_ch->msg_size,curr_ch->ch_id);
         return -EWOULDBLOCK;
     }
     if (curr_ch->msg_size > length){
@@ -170,22 +196,26 @@ static ssize_t device_write( struct file*       file,
                              loff_t*            offset)
 {
     int count;
-    char temp[BUFFER_LEN];
+    char *temp
     channel *curr_ch;
     printk("Invoking device_write(%p,%ld)\n", file, length);
     if (buffer == NULL){
         printk("Error - writing buffer is NULL\n");
         return -EINVAL;
     }
-    if (length == 0 || length > BUFFER_LEN){
+    if (length <= 0 || length > BUFFER_LEN){
         printk("Error - message length is 0 or more than 128\n");
         return -EMSGSIZE;
     }
-    curr_ch = (channel*)(file->private_data);
-    if(curr_ch == NULL)
+    if((curr_ch = (channel*)(file->private_data)) == NULL)
     {
         printk("Error - no channel to write from the minor\n");
         return -EINVAL;
+    }
+    if((temp = kmalloc(sizeof(char)* length, GFP_KERNEL))== NULL)
+    {
+        printk("Error - failed kmalloc message\n");
+        return -ENOSPC;
     }
     if((count = copy_from_user(temp,buffer,length))!=0)
     {
@@ -195,6 +225,7 @@ static ssize_t device_write( struct file*       file,
     memcpy(curr_ch->message,temp,length);
     curr_ch->msg_size = length;
     printk("succesfull %d out of %ld bytes writing\n",curr_ch->msg_size,length);
+    kfree(temp);
     return curr_ch->msg_size;
 }
 
